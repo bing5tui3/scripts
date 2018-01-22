@@ -112,5 +112,7 @@ echo "WantedBy=multi-user.target" >> ${systemd_file}
 echo "systemd config file created: /etc/${systemd_file}/${config_file}"
 
 
-
+`systemctl daemon-reload`
+`systemctl enable shadowsocks`
+`systemctl start shadowsocks`
 
