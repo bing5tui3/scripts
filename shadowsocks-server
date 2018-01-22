@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+#   shadowsocks install script
+#History:
+#   2018/01/21  bing5tui3  First Creation
+
+get_os_name() {
+   if [ -f /etc/os-release ]; then
+      . /etc/os-release
+      OS=$NAME 
+   fi
+}
+   
+name=shadowsocks
+path=${HOME}/${name}
+echo "${name} will be installed in the following folder:"
+echo ${path}
+mkdir -p ${path}
+get_os_name
+echo $OS
+if [ "$OS" = "Ubuntu" ]; then
+   apt-get update -y
+   apt-get upgrade -y
+   apt-get install --no-install-recommends -y gettext build-essential autoconf libtool libpcre3-dev asciidoc xmlto libev-dev libc-ares-dev automake libmbedtls-dev libsodium-dev
+fi
+
+# Download shadowsocks-libev
+cd ${path}
+if [ -d ${path}/shadowsocks-libev ]; then
+   echo 'Warning: shadowsocks-libev folder exists'
+else
+   git clone https://github.com/shadowsocks/shadowsocks-libev.git
+   cd shadowsocks-libev
+   git submodule update --init --recursive
+   ./autogen.sh
+   ./configure
+   make
+   make install
+fi
+
+# Add user for shadowsocks to use
+id -u shadowsocks > /dev/null
+if [ "$?" = "0" ]; then
+   echo 'Warning: user shadowsocks exists'
+else
+   adduser --system --no-create-home --group shadowsocks
+fi
+
+# Create the folder for configuration file and initialize shadowsocks.json
+if [ -d /etc/${name} ]; then
+   echo 'Warning: configuration folder exists'
+else
+   mkdir -m 755 /etc/${name}
+fi
+
+cd /etc/${name}
+config_file="${name}.json"
+if [ -f ${config_file} ]; then
+   echo 'Initialize the config file'
+   echo '' > ${config_file}
+else
+   echo 'Creating the config file'
+   `touch ${config_file}`
+fi
+
+# Get public ip address
+ipaddr=`ip addr | grep 'state UP' -A2 | tail -n1 | awk '{print $2}' | cut -f1 -d'/'`
+echo "Your state up ip address is : ${ipaddr}"
+
+# Get Server information
+read -p "Please input your listening port number:" input_port
+while ! [[ ${input_port} =~ ^[0-9]+$ ]]
+do
+   echo "Input port number is invalid"
+   read -p "Please input your listening port number:" input_port
+done
+read -p "Please input your connection password:" input_password
+
+# Generate the content of config file
+echo "{" >> ${config_file}
+echo "\"server\":\"${ipaddr}\"," >> ${config_file}
+echo "\"server_port\":${input_port}," >> ${config_file}
+echo "\"local_address\":\"127.0.0.1\"," >> ${config_file}
+echo "\"local_port\":1080," >> ${config_file}
+echo "\"password\":\"${input_password}\"," >> ${config_file}
+echo "\"timeout\":300," >> ${config_file}
+echo "\"method\":\"aes-256-cfb\"," >> ${config_file}
+echo "\"fast_open\":true" >> ${config_file}
+echo "}" >> ${config_file}
+
+# Generate systemd config file
+systemd_file="${name}.service"
+cd /etc/systemd/system
+if [ -f ${systemd_file} ]; then
+   echo "systemd configuration file exists, needs to be initialized"
+   echo '' > ${systemd_file}
+else
+   echo 'Creating systemd config file ...'
+   `touch ${systemd_file}`
+fi
+
+echo "[Unit]" >> ${systemd_file}
+echo "Description=Shadowsocks proxy server" >> ${systemd_file}
+echo "[Service]" >> ${systemd_file}
+echo "User=root" >> ${systemd_file}
+echo "Group=root" >> ${systemd_file}
+echo "Type=simple" >> ${systemd_file}
+echo "ExecStart=/usr/local/bin/ss-server -c /etc/${name}/${config_file} -a ${name} -v start" >> ${systemd_file}
+echo "ExecStop=/usr/local/bin/ss-server -c /etc/${name}/${config_file} -a ${name} -v stop" >> ${systemd_file}
+echo "[Install]" >> ${systemd_file}
+echo "WantedBy=multi-user.target" >> ${systemd_file}
+
+echo "systemd config file created: /etc/${systemd_file}/${config_file}"
+
+
+
+
